@@ -36,6 +36,7 @@ import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.MacAddress;
 import org.projectfloodlight.openflow.types.OFBufferId;
 import org.projectfloodlight.openflow.types.U64;
+import org.python.antlr.ast.Str;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,7 +72,7 @@ import net.floodlightcontroller.routing.ForwardingBase;
  * @author alexreimers
  */
 public class VirtualNetworkFilter
-implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
+		implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 	protected static Logger log = LoggerFactory.getLogger(VirtualNetworkFilter.class);
 
 	private static final short APP_ID = 20;
@@ -90,7 +91,10 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 	protected Map<String, IPv4Address> guidToGateway; // Network ID -> Gateway IP
 	protected Map<IPv4Address, Set<String>> gatewayToGuid; // Gateway IP -> Network ID
 	protected Map<MacAddress, IPv4Address> macToGateway; // Gateway MAC -> Gateway IP
-	protected Map<MacAddress, String> macToGuid; // Host MAC -> Network ID
+
+	//protected Map<MacAddress, String> macToGuid; // Host MAC -> Network ID
+	protected Map<MacAddress, ArrayList<String>> macToGuid; // Host MAC -> Network IDs
+
 	protected Map<String, MacAddress> portToMac; // Host MAC -> logical port name
 
 	// Device Listener impl class
@@ -227,7 +231,16 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 						new Object[] {mac, guid, port});
 			}
 			// We ignore old mappings
-			macToGuid.put(mac, guid);
+			//macToGuid.put(mac, guid);
+
+			if(macToGuid.get(mac)==null){
+				ArrayList<String> listRedes = new ArrayList<>();
+				listRedes.add(guid);
+				macToGuid.put(mac, listRedes);
+			}else{
+				macToGuid.get(mac).add(guid);
+			}
+
 			portToMac.put(port, mac);
 			if (vNetsByGuid.get(guid) != null)
 				vNetsByGuid.get(guid).addHost(port, mac);
@@ -278,9 +291,9 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 	public Map<Class<? extends IFloodlightService>, IFloodlightService>
 	getServiceImpls() {
 		Map<Class<? extends IFloodlightService>,
-		IFloodlightService> m =
-		new HashMap<Class<? extends IFloodlightService>,
-		IFloodlightService>();
+				IFloodlightService> m =
+				new HashMap<Class<? extends IFloodlightService>,
+						IFloodlightService>();
 		m.put(IVirtualNetworkService.class, this);
 		return m;
 	}
@@ -306,7 +319,7 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 		nameToGuid = new ConcurrentHashMap<String, String>();
 		guidToGateway = new ConcurrentHashMap<String, IPv4Address>();
 		gatewayToGuid = new ConcurrentHashMap<IPv4Address, Set<String>>();
-		macToGuid = new ConcurrentHashMap<MacAddress, String>();
+		macToGuid = new ConcurrentHashMap<MacAddress, ArrayList<String>>();
 		portToMac = new ConcurrentHashMap<String, MacAddress>();
 		macToGateway = new ConcurrentHashMap<MacAddress, IPv4Address>();
 		deviceListener = new DeviceListenerImpl();
@@ -343,10 +356,10 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 	@Override
 	public Command receive(IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
 		switch (msg.getType()) {
-		case PACKET_IN:
-			return processPacketIn(sw, (OFPacketIn)msg, cntx);
-		default:
-			break;
+			case PACKET_IN:
+				return processPacketIn(sw, (OFPacketIn)msg, cntx);
+			default:
+				break;
 		}
 		log.warn("Received unexpected message {}", msg);
 		return Command.CONTINUE;
@@ -364,11 +377,14 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 		IPv4Address gwIp = macToGateway.get(frame.getDestinationMACAddress());
 		if (gwIp != null) {
 			MacAddress host = frame.getSourceMACAddress();
-			String srcNet = macToGuid.get(host);
-			if (srcNet != null) {
-				IPv4Address gwIpSrcNet = guidToGateway.get(srcNet);
-				if ((gwIpSrcNet != null) && (gwIp.equals(gwIpSrcNet)))
-					return true;
+			//String srcNet = macToGuid.get(host);
+			ArrayList<String> srcNets = macToGuid.get(host);;
+			if (srcNets != null) {
+				for(String srcNet: srcNets){
+					IPv4Address gwIpSrcNet = guidToGateway.get(srcNet);
+					if ((gwIpSrcNet != null) && (gwIp.equals(gwIpSrcNet)))
+						return true;
+				}
 			}
 		}
 
@@ -383,11 +399,24 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 	 *          false otherwise.
 	 */
 	protected boolean oneSameNetwork(MacAddress m1, MacAddress m2) {
-		String net1 = macToGuid.get(m1);
-		String net2 = macToGuid.get(m2);
-		if (net1 == null) return false;
-		if (net2 == null) return false;
-		return net1.equals(net2);
+		//String net1 = macToGuid.get(m1);
+		ArrayList<String> nets1 = macToGuid.get(m1);
+		//String net2 = macToGuid.get(m2);
+		ArrayList<String> nets2 = macToGuid.get(m2);
+		//if (net1 == null) return false;
+		if (nets1 == null) return false;
+		//if (net2 == null) return false;
+		if (nets2 == null) return false;
+
+		boolean onTheSameNetwork = false;
+		for(String net1: nets1){
+			if(nets2.contains(net1)){
+				onTheSameNetwork = true;
+				break;
+			}
+		}
+		//return net1.equals(net2);
+		return onTheSameNetwork;
 	}
 
 	/**
@@ -417,7 +446,9 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 		Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
 				IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
 		Command ret = Command.STOP;
-		String srcNetwork = macToGuid.get(eth.getSourceMACAddress());
+		//String srcNetwork = macToGuid.get(eth.getSourceMACAddress());
+		ArrayList<String> srcNetwork = macToGuid.get(eth.getSourceMACAddress());
+
 		// If the host is on an unknown network we deny it.
 		// We make exceptions for ARP and DHCP.
 		if (eth.isBroadcast() || eth.isMulticast() || isDefaultGateway(eth) || isDhcpPacket(eth)) {
@@ -467,15 +498,15 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 		List<OFAction> actions = new ArrayList<OFAction>(); // no actions = drop
 		U64 cookie = AppCookie.makeCookie(APP_ID, 0);
 		fmb.setCookie(cookie)
-		.setIdleTimeout(ForwardingBase.FLOWMOD_DEFAULT_IDLE_TIMEOUT)
-		.setHardTimeout(ForwardingBase.FLOWMOD_DEFAULT_HARD_TIMEOUT)
-		.setBufferId(OFBufferId.NO_BUFFER)
-		.setMatch(pi.getMatch())
-		.setActions(actions);
+				.setIdleTimeout(ForwardingBase.FLOWMOD_DEFAULT_IDLE_TIMEOUT)
+				.setHardTimeout(ForwardingBase.FLOWMOD_DEFAULT_HARD_TIMEOUT)
+				.setBufferId(OFBufferId.NO_BUFFER)
+				.setMatch(pi.getMatch())
+				.setActions(actions);
 
 		if (log.isTraceEnabled()) {
 			log.trace("write drop flow-mod srcSwitch={} match={} " +
-					"pi={} flow-mod={}",
+							"pi={} flow-mod={}",
 					new Object[] {sw, pi.getMatch(), pi, fmb.build()});
 		}
 		sw.write(fmb.build());
@@ -520,7 +551,7 @@ implements IFloodlightModule, IVirtualNetworkService, IOFMessageListener {
 			// add or remove entry as gateway
 			deviceAdded(device);
 		}
-		
+
 		@Override
 		public void deviceIPV6AddrChanged(IDevice device) {
 			//TODO
