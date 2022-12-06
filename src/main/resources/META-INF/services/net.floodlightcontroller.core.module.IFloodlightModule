@@ -29,3 +29,5 @@ net.floodlightcontroller.dhcpserver.DHCPServer
 net.floodlightcontroller.learningswitch.LearningSwitch
 net.floodlightcontroller.statistics.StatisticsCollector
 net.floodlightcontroller.antiataques.AntiAtaques
+net.floodlightcontroller.proxyarp.ARPProxy
+net.floodlightcontroller.circuittree.CircuitTreeManager
