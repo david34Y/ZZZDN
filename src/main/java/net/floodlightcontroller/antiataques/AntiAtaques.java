@@ -68,10 +68,10 @@ public class AntiAtaques implements IFloodlightModule, IOFMessageListener {
 
     @Override
     public Collection<Class<? extends IFloodlightService>> getModuleServices() {
-        Collection<Class<? extends IFloodlightService>> l =
+        /*Collection<Class<? extends IFloodlightService>> l =
                 new ArrayList<Class<? extends IFloodlightService>>();
-        l.add(IVirtualNetworkService.class);
-        return l;
+        l.add(IVirtualNetworkService.class);*/
+        return null;
     }
 
     @Override
@@ -161,9 +161,7 @@ public class AntiAtaques implements IFloodlightModule, IOFMessageListener {
         Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
                 IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
         Command ret = Command.STOP;
-        if (!hostBlocked.contains(eth.getSourceMACAddress())) {
-            detectorIpSpoofing(eth);
-        }
+
         if (!hostBlocked.contains(eth.getSourceMACAddress())) {
             portScanning(eth);
         }
